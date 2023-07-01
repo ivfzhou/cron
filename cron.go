@@ -33,7 +33,7 @@ type ScheduleParser interface {
 
 // Job is an interface for submitted cron jobs.
 type Job interface {
-	Run()
+	Run(time.Time)
 }
 
 // Schedule describes a job's duty cycle.
@@ -131,14 +131,14 @@ func New(opts ...Option) *Cron {
 }
 
 // FuncJob is a wrapper that turns a func() into a cron.Job
-type FuncJob func()
+type FuncJob func(time.Time)
 
-func (f FuncJob) Run() { f() }
+func (f FuncJob) Run(t time.Time) { f(t) }
 
 // AddFunc adds a func to the Cron to be run on the given schedule.
 // The spec is parsed using the time zone of this Cron instance as the default.
 // An opaque ID is returned that can be used to later remove it.
-func (c *Cron) AddFunc(spec string, cmd func()) (EntryID, error) {
+func (c *Cron) AddFunc(spec string, cmd func(time.Time)) (EntryID, error) {
 	return c.AddJob(spec, FuncJob(cmd))
 }
 
@@ -270,8 +270,8 @@ func (c *Cron) run() {
 					if e.Next.After(now) || e.Next.IsZero() {
 						break
 					}
-					c.startJob(e.WrappedJob)
 					e.Prev = e.Next
+					c.startJob(e.WrappedJob, e.Prev)
 					e.Next = e.Schedule.Next(now)
 					c.logger.Info("run", "now", now, "entry", e.ID, "next", e.Next)
 				}
@@ -305,11 +305,11 @@ func (c *Cron) run() {
 }
 
 // startJob runs the given job in a new goroutine.
-func (c *Cron) startJob(j Job) {
+func (c *Cron) startJob(j Job, t time.Time) {
 	c.jobWaiter.Add(1)
 	go func() {
 		defer c.jobWaiter.Done()
-		j.Run()
+		j.Run(t)
 	}()
 }
 
